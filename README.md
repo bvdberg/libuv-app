@@ -10,3 +10,11 @@ for updating
 pulling in:
     git subtree pull --prefix libuv/ https://github.com/baberuth/libuv.git master --squash
 
+main.c
+    Show the basic usage of libuv (timers + keyhandling)
+
+main-server.c
+    Shows a tcp server that can accept multiple clients and create a basic chat room
+
+main-client.c
+    Shows a tcp client to connect to the server application to send some characters from the user input

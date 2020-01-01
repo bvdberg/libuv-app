@@ -15,19 +15,19 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
 
 static void term_init(void)
 {
-    ioctl(0, TCGETS, &oldT);
+    (void)ioctl(0, TCGETS, &oldT);
     newT = oldT;
     newT.c_lflag &= ~ECHO;
     newT.c_lflag &= ~ICANON;
     newT.c_cc[VMIN] = 0;
     newT.c_cc[VTIME] = 0;
 
-    ioctl(0, TCSETS, &newT);
+    (void)ioctl(0, TCSETS, &newT);
 }
 
 static void term_reset()
 {
-    ioctl(0, TCSETS, &oldT);
+    (void)ioctl(0, TCSETS, &oldT);
 }
 
 static void usage(void)
@@ -37,7 +37,6 @@ static void usage(void)
     fprintf(stderr, "s(top) timer\n");
     fprintf(stderr, "r(estart) timer\n");
     fprintf(stderr, "4(exitcode 4)\n");
-
 }
 
 void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
