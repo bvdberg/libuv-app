@@ -7,7 +7,6 @@
 static uv_handle_t stdin_pipe;
 static uv_loop_t *loop;
 static struct termios oldT, newT;
-static uv_timer_t timer;
 
 static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     *buf = uv_buf_init((char*) malloc(suggested_size), suggested_size);
@@ -34,10 +33,6 @@ static void usage(void)
 {
     fprintf(stderr, "q(uit)\n");
     fprintf(stderr, "h(elp)\n");
-    fprintf(stderr, "s(top) timer\n");
-    fprintf(stderr, "r(estart) timer\n");
-    fprintf(stderr, "4(exitcode 4)\n");
-
 }
 
 void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -52,23 +47,11 @@ void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
             case 'q':
             uv_stop(loop);
             break;
-            case '4':
-            uv_stop_exitcode(loop, 4);
-            break;
             case 'h':
             usage();
             case '?':
             usage();
             break;
-            case 's':
-                uv_timer_stop(&timer);
-                fprintf(stderr, "stop timer\n");
-            break;
-            case 'r':
-                uv_timer_again(&timer);
-                fprintf(stderr, "restart timer\n");
-            break;
-
         }
     }
 
@@ -84,15 +67,65 @@ static void signal_handler(uv_signal_t *req, int signum)
     uv_signal_stop(req);
 }
 
-static void timer_func(uv_timer_t* handle)
-{
-    fprintf(stderr, "timer called, missing cookie %d\n", (int)uv_handle_get_data(handle));
+struct sockaddr_in addr;
+
+typedef struct {
+    uv_write_t req;
+    uv_buf_t buf;
+} write_req_t;
+
+void free_write_req(uv_write_t *req) {
+    write_req_t *wr = (write_req_t*) req;
+    free(wr->buf.base);
+    free(wr);
+}
+
+void on_close(uv_handle_t* handle) {
+    free(handle);
+}
+
+void echo_write(uv_write_t *req, int status) {
+    if (status) {
+        fprintf(stderr, "Write error %s\n", uv_strerror(status));
+    }
+    free_write_req(req);
+}
+
+void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
+    if (nread > 0) {
+        write_req_t *req = (write_req_t*) malloc(sizeof(write_req_t));
+        req->buf = uv_buf_init(buf->base, nread);
+        uv_write((uv_write_t*) req, client, &req->buf, 1, echo_write);
+        return;
+    }
+    if (nread < 0) {
+        if (nread != UV_EOF)
+            fprintf(stderr, "Read error %s\n", uv_err_name(nread));
+        uv_close((uv_handle_t*) client, on_close);
+    }
+
+    free(buf->base);
+}
+
+void on_new_connection(uv_stream_t *server, int status) {
+    if (status < 0) {
+        fprintf(stderr, "New connection error %s\n", uv_strerror(status));
+        // error!
+        return;
+    }
+
+    uv_tcp_t *client = (uv_tcp_t*) malloc(sizeof(uv_tcp_t));
+    uv_tcp_init(loop, client);
+    if (uv_accept(server, (uv_stream_t*) client) == 0) {
+        uv_read_start((uv_stream_t*) client, alloc_buffer, echo_read);
+    }
+    else {
+        uv_close((uv_handle_t*) client, on_close);
+    }
 }
 
 int main(int argc, char *argv[], char *env[])
 {
-    int r;
-
     loop = malloc(sizeof(uv_loop_t));
     uv_loop_init(loop);
     term_init();
@@ -106,17 +139,23 @@ int main(int argc, char *argv[], char *env[])
 
     uv_read_start((uv_stream_t*)&stdin_pipe, alloc_buffer, read_stdin);
 
-    uv_timer_init(loop, &timer);
-    uv_timer_start(&timer, timer_func, 1, 2000);
-    uv_handle_set_data(&timer, 4);
+    uv_tcp_t server;
+    uv_tcp_init(loop, &server);
 
+    uv_ip4_addr("0.0.0.0", 7000, &addr);
+
+    uv_tcp_bind(&server, (const struct sockaddr*)&addr, 0);
+    int r = uv_listen((uv_stream_t*) &server, 7000, on_new_connection);
+    if (r) {
+        fprintf(stderr, "Listen error %s\n", uv_strerror(r));
+        return 1;
+    }
     //MAINLOOP
-    r = uv_run(loop, UV_RUN_DEFAULT);
+    uv_run(loop, UV_RUN_DEFAULT);
 
     uv__pipe_close(&stdin_pipe);
     uv_loop_close(loop);
-    uv_close(&timer, 0);
     term_reset();
     free(loop);
-    return r;
+    return 0;
 }

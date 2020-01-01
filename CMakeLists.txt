@@ -15,7 +15,7 @@ add_executable(app
     main.c
 )
 
-target_include_directories(app
+target_include_directories(app 
     PUBLIC
         $<INSTALL_INTERFACE:include>
         $<BUILD_INTERFACE:
@@ -27,3 +27,33 @@ target_link_libraries(app uv_a)
 
 install(TARGETS app DESTINATION bin)
 install(FILES app.map DESTINATION bin)
+
+add_executable(app-server
+    main-server.c
+    list.c
+)
+
+target_include_directories(app-server
+    PUBLIC
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:
+			${CMAKE_CURRENT_SOURCE_DIR}/libuv/include/
+    PRIVATE
+)
+
+target_link_libraries(app-server uv_a)
+
+add_executable(app-client
+    main-client.c
+)
+target_include_directories(app-client
+    PUBLIC
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:
+			${CMAKE_CURRENT_SOURCE_DIR}/libuv/include/
+    PRIVATE
+)
+
+target_link_libraries(app-client uv_a)
+
+

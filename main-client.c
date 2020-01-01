@@ -34,10 +34,6 @@ static void usage(void)
 {
     fprintf(stderr, "q(uit)\n");
     fprintf(stderr, "h(elp)\n");
-    fprintf(stderr, "s(top) timer\n");
-    fprintf(stderr, "r(estart) timer\n");
-    fprintf(stderr, "4(exitcode 4)\n");
-
 }
 
 void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
@@ -52,23 +48,11 @@ void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
             case 'q':
             uv_stop(loop);
             break;
-            case '4':
-            uv_stop_exitcode(loop, 4);
-            break;
             case 'h':
             usage();
             case '?':
             usage();
             break;
-            case 's':
-                uv_timer_stop(&timer);
-                fprintf(stderr, "stop timer\n");
-            break;
-            case 'r':
-                uv_timer_again(&timer);
-                fprintf(stderr, "restart timer\n");
-            break;
-
         }
     }
 
@@ -91,8 +75,6 @@ static void timer_func(uv_timer_t* handle)
 
 int main(int argc, char *argv[], char *env[])
 {
-    int r;
-
     loop = malloc(sizeof(uv_loop_t));
     uv_loop_init(loop);
     term_init();
@@ -111,12 +93,12 @@ int main(int argc, char *argv[], char *env[])
     uv_handle_set_data(&timer, 4);
 
     //MAINLOOP
-    r = uv_run(loop, UV_RUN_DEFAULT);
+    uv_run(loop, UV_RUN_DEFAULT);
 
     uv__pipe_close(&stdin_pipe);
     uv_loop_close(loop);
     uv_close(&timer, 0);
     term_reset();
     free(loop);
-    return r;
+    return 0;
 }
