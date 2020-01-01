@@ -382,7 +382,10 @@ int uv_run(uv_loop_t* loop, uv_run_mode mode) {
    * dirtying a cache line.
    */
   if (loop->stop_flag != 0)
+  {
+    r = loop->exitcode;
     loop->stop_flag = 0;
+  }
 
   return r;
 }

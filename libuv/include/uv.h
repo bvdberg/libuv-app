@@ -280,6 +280,7 @@ UV_EXTERN int uv_loop_fork(uv_loop_t* loop);
 
 UV_EXTERN int uv_run(uv_loop_t*, uv_run_mode mode);
 UV_EXTERN void uv_stop(uv_loop_t*);
+UV_EXTERN void uv_stop_exitcode(uv_loop_t* loop, uint8_t exitcode);
 
 UV_EXTERN void uv_ref(uv_handle_t*);
 UV_EXTERN void uv_unref(uv_handle_t*);
@@ -1754,6 +1755,7 @@ struct uv_loop_s {
   } active_reqs;
   /* Internal flag to signal loop stop. */
   unsigned int stop_flag;
+  unsigned int exitcode;
   void* reserved[4];
   UV_LOOP_PRIVATE_FIELDS
 };

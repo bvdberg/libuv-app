@@ -522,6 +522,11 @@ void uv_stop(uv_loop_t* loop) {
   loop->stop_flag = 1;
 }
 
+void uv_stop_exitcode(uv_loop_t* loop, uint8_t exitcode) {
+    uv_stop(loop);
+    loop->exitcode = exitcode;
+}
+
 
 uint64_t uv_now(const uv_loop_t* loop) {
   return loop->time;
