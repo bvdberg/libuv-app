@@ -74,14 +74,25 @@ typedef struct {
     uv_buf_t buf;
 } write_req_t;
 
+#include "list.h"
+#include "utils.h"
+
+struct client_
+{
+    struct list_tag list;
+    uv_tcp_t client;
+    uv_stream_t *server;
+};
+
 void free_write_req(uv_write_t *req) {
     write_req_t *wr = (write_req_t*) req;
-    free(wr->buf.base);
     free(wr);
 }
 
 void on_close(uv_handle_t* handle) {
-    free(handle);
+    struct client_ *c = to_container(struct client_, handle, client);
+    list_remove(&c->list);
+    free(c);
 }
 
 void echo_write(uv_write_t *req, int status) {
@@ -93,9 +104,20 @@ void echo_write(uv_write_t *req, int status) {
 
 void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
     if (nread > 0) {
-        write_req_t *req = (write_req_t*) malloc(sizeof(write_req_t));
-        req->buf = uv_buf_init(buf->base, nread);
-        uv_write((uv_write_t*) req, client, &req->buf, 1, echo_write);
+        struct client_ *c = to_container(struct client_, client, client);
+        uv_stream_t *s = c->server;
+        list_t head = uv_handle_get_data(s);
+        list_t node = head->next;
+
+        while (node != head)
+        {
+            c = list_entry(node, struct client_, list);
+            write_req_t *req = (write_req_t*) malloc(sizeof(write_req_t));
+            req->buf = uv_buf_init(buf->base, nread);
+            uv_write((uv_write_t*) req, &c->client, &req->buf, 1, echo_write);
+            node = node->next;
+        }
+
         return;
     }
     if (nread < 0) {
@@ -114,18 +136,24 @@ void on_new_connection(uv_stream_t *server, int status) {
         return;
     }
 
-    uv_tcp_t *client = (uv_tcp_t*) malloc(sizeof(uv_tcp_t));
-    uv_tcp_init(loop, client);
-    if (uv_accept(server, (uv_stream_t*) client) == 0) {
-        uv_read_start((uv_stream_t*) client, alloc_buffer, echo_read);
+    struct client_ *c = (struct client_*) malloc(sizeof(struct client_));
+    uv_tcp_init(loop, &c->client);
+    list_init(&c->list);
+    c->server = server;
+    list_add_tail(uv_handle_get_data(server), &c->list);
+    if (uv_accept(server, (uv_stream_t*) &c->client) == 0) {
+        uv_read_start((uv_stream_t*) &c->client, alloc_buffer, echo_read);
     }
     else {
-        uv_close((uv_handle_t*) client, on_close);
+        uv_close((uv_handle_t*) &c->client, on_close);
     }
 }
 
 int main(int argc, char *argv[], char *env[])
 {
+    int r;
+    struct list_tag clients;
+    list_init(&clients);
     loop = malloc(sizeof(uv_loop_t));
     uv_loop_init(loop);
     term_init();
@@ -141,21 +169,22 @@ int main(int argc, char *argv[], char *env[])
 
     uv_tcp_t server;
     uv_tcp_init(loop, &server);
+    uv_handle_set_data(&server, &clients);
 
     uv_ip4_addr("0.0.0.0", 7000, &addr);
 
     uv_tcp_bind(&server, (const struct sockaddr*)&addr, 0);
-    int r = uv_listen((uv_stream_t*) &server, 7000, on_new_connection);
+    r = uv_listen((uv_stream_t*) &server, 2, on_new_connection);
     if (r) {
         fprintf(stderr, "Listen error %s\n", uv_strerror(r));
         return 1;
     }
     //MAINLOOP
-    uv_run(loop, UV_RUN_DEFAULT);
+    r = uv_run(loop, UV_RUN_DEFAULT);
 
     uv__pipe_close(&stdin_pipe);
     uv_loop_close(loop);
     term_reset();
     free(loop);
-    return 0;
+    return r;
 }
