@@ -15,7 +15,7 @@ add_executable(app
     main.c
 )
 
-target_include_directories(app 
+target_include_directories(app
     PUBLIC
         $<INSTALL_INTERFACE:include>
         $<BUILD_INTERFACE:

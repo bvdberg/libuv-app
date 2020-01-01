@@ -1,10 +1,11 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 
 #include "libuv/include/uv.h"
 
-static uv_handle_t stdin_pipe;
+static uv_pipe_t stdin_pipe;
 static uv_loop_t *loop;
 static struct termios oldT, newT;
 static uv_timer_t timer;
@@ -56,6 +57,7 @@ void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
             break;
             case 'h':
             usage();
+            break;
             case '?':
             usage();
             break;
@@ -85,7 +87,7 @@ static void signal_handler(uv_signal_t *req, int signum)
 
 static void timer_func(uv_timer_t* handle)
 {
-    fprintf(stderr, "timer called, missing cookie %d\n", (int)uv_handle_get_data(handle));
+    fprintf(stderr, "timer called, missing cookie %p\n", uv_handle_get_data((uv_handle_t*)handle));
 }
 
 int main(int argc, char *argv[], char *env[])
@@ -107,14 +109,14 @@ int main(int argc, char *argv[], char *env[])
 
     uv_timer_init(loop, &timer);
     uv_timer_start(&timer, timer_func, 1, 2000);
-    uv_handle_set_data(&timer, 4);
+    uv_handle_set_data((uv_handle_t*)&timer, (void*)4);
 
     //MAINLOOP
     r = uv_run(loop, UV_RUN_DEFAULT);
 
-    uv__pipe_close(&stdin_pipe);
+    uv_close((uv_handle_t*)&stdin_pipe, NULL);
     uv_loop_close(loop);
-    uv_close(&timer, 0);
+    uv_close((uv_handle_t*)&timer, NULL);
     term_reset();
     free(loop);
     return r;

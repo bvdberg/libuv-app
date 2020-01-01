@@ -5,7 +5,7 @@
 #include "utils.h"
 #include "libuv/include/uv.h"
 
-static uv_handle_t stdin_pipe;
+static uv_pipe_t stdin_pipe;
 static uv_loop_t *loop;
 static struct termios oldT, newT;
 struct sockaddr_in addr;
@@ -47,13 +47,14 @@ void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
         switch (buf->base[0])
         {
             case 'q':
-            uv_stop(loop);
-            break;
+                uv_stop(loop);
+                break;
             case 'h':
-            usage();
+                usage();
+                break;
             case '?':
-            usage();
-            break;
+                usage();
+                break;
         }
     }
 
@@ -103,7 +104,7 @@ static void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
     if (nread > 0) {
         struct client_ *c = to_container(struct client_, client, client);
         uv_stream_t *s = c->server;
-        list_t head = uv_handle_get_data(s);
+        list_t head = (list_t)uv_handle_get_data((uv_handle_t*)s);
         list_t node = head->next;
 
         while (node != head)
@@ -111,7 +112,7 @@ static void echo_read(uv_stream_t *client, ssize_t nread, const uv_buf_t *buf) {
             c = list_entry(node, struct client_, list);
             write_req_t *req = (write_req_t*) malloc(sizeof(write_req_t));
             req->buf = uv_buf_init(buf->base, nread);
-            uv_write((uv_write_t*) req, &c->client, &req->buf, 1, echo_write);
+            uv_write((uv_write_t*) req, (uv_stream_t*)&c->client, &req->buf, 1, echo_write);
             node = node->next;
         }
 
@@ -137,7 +138,7 @@ void on_new_connection(uv_stream_t *server, int status) {
     uv_tcp_init(loop, &c->client);
     list_init(&c->list);
     c->server = server;
-    list_add_tail(uv_handle_get_data(server), &c->list);
+    list_add_tail(uv_handle_get_data((uv_handle_t*)server), &c->list);
     if (uv_accept(server, (uv_stream_t*) &c->client) == 0) {
         uv_read_start((uv_stream_t*) &c->client, alloc_buffer, echo_read);
     }
@@ -166,7 +167,7 @@ int main(int argc, char *argv[], char *env[])
 
     uv_tcp_t server;
     uv_tcp_init(loop, &server);
-    uv_handle_set_data(&server, &clients);
+    uv_handle_set_data((uv_handle_t*)&server, &clients);
 
     uv_ip4_addr("0.0.0.0", 7000, &addr);
 
@@ -180,7 +181,7 @@ int main(int argc, char *argv[], char *env[])
     //MAINLOOP
     r = uv_run(loop, UV_RUN_DEFAULT);
 
-    uv__pipe_close(&stdin_pipe);
+    uv_close((uv_handle_t*)&stdin_pipe, NULL);
     uv_loop_close(loop);
     term_reset();
     free(loop);

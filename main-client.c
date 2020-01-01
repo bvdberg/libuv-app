@@ -5,7 +5,7 @@
 #include "utils.h"
 #include "libuv/include/uv.h"
 
-static uv_handle_t stdin_pipe;
+static uv_pipe_t stdin_pipe;
 static uv_loop_t *loop;
 static struct termios oldT, newT;
 struct sockaddr_in addr;
@@ -47,13 +47,14 @@ void read_stdin(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
         switch (buf->base[0])
         {
             case 'q':
-            uv_stop(loop);
-            break;
+                uv_stop(loop);
+                break;
             case 'h':
-            usage();
+                usage();
+                break;
             case '?':
-            usage();
-            break;
+                usage();
+                break;
         }
     }
 
@@ -119,7 +120,6 @@ static void on_connect(uv_connect_t *req, int status)
 
 int main(int argc, char *argv[], char *env[])
 {
-    int r;
     loop = malloc(sizeof(uv_loop_t));
     uv_loop_init(loop);
     term_init();
@@ -140,7 +140,7 @@ int main(int argc, char *argv[], char *env[])
 
     uv_connect_t connect_req;
     client.data = &connect_req;
-    r = uv_tcp_connect(&connect_req,
+    int r = uv_tcp_connect(&connect_req,
                      &client,
                      (const struct sockaddr*) &addr,
                      on_connect);
@@ -153,8 +153,8 @@ int main(int argc, char *argv[], char *env[])
     //MAINLOOP
     r = uv_run(loop, UV_RUN_DEFAULT);
 
-    uv_close(&client, on_close);
-    uv__pipe_close(&stdin_pipe);
+    uv_close((uv_handle_t*)&client, on_close);
+    uv_close((uv_handle_t*)&stdin_pipe, NULL);
     uv_loop_close(loop);
     term_reset();
     free(loop);
