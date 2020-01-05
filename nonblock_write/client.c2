@@ -1,0 +1,63 @@
+module main_server;
+
+import unistd;
+import c_errno local;
+import csignal local;
+import string local;
+import stdlib local;
+import stdio local;
+import logger;
+import events;
+import tcp_client;
+
+events.Base* base;
+logger.Log log;
+
+func void on_data(void* arg, const char* data, u32 size) {
+    log.info("recv %u bytes", size);
+}
+
+func void on_error(void* arg) {
+    log.error("error");
+    base.loopbreak(EXIT_FAILURE);
+}
+
+public func i32 main(i32 argc, char** argv) {
+    const char* server = "127.0.0.1";
+    u16 port = 6666;
+    if (argc >= 2) server = argv[1];
+    if (argc == 3) port = cast<u16>(atoi(argv[2]));
+
+    logger.Base logbase;
+    logbase.init(logger.Level.Info, unistd.isatty(1), true);
+    log.init(&logbase, "client");
+
+    log.info("connecting to %s port %u", server, port);
+
+    base = events.Base.create();
+    tcp_client.Client* client = tcp_client.Client.create(base, server, port, on_data, on_error, nil);
+
+    Sigaction act;
+    memset(&act, 0, sizeof(act));
+    act.sa_flags = SA_NOCLDSTOP|SA_RESTART;
+    act.sa_handler = signal_handler;
+    if (sigaction(SIGINT, &act, nil) != 0) fatal("sigaction(SIGINT)");
+    if (sigaction(SIGTERM, &act, nil) != 0) fatal("sigaction(SIGTERM)");
+
+    u8 ret = base.mainloop();
+
+    base.destroy();
+    log.base.destroy();
+
+    return ret;
+}
+
+func void signal_handler(i32 num) {
+    base.loopbreak(EXIT_SUCCESS);
+}
+
+func void fatal(const char* msg) {
+    fprintf(stderr, "Fatal: %s\n", msg);
+    exit(EXIT_FAILURE);
+}
+

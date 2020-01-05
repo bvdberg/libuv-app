@@ -1,0 +1,25 @@
+
+executable server
+    $warnings no-unused
+	$generate-c single-module check
+    $refs
+    color.c2
+    events.c2
+    linked_list.c2
+    logger.c2
+    tcp_server.c2
+    server.c2
+end
+
+executable client
+    $warnings no-unused
+	$generate-c single-module check
+    $refs
+    color.c2
+    events.c2
+#    linked_list.c2
+    logger.c2
+    tcp_client.c2
+    client.c2
+end
+

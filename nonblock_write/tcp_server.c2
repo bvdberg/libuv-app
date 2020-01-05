@@ -1,0 +1,167 @@
+module tcp_server;
+
+import stdio local;
+import stdlib local;
+import unistd local;
+import string local;
+import sys_socket local;
+import sys_sendfile local;
+import c2 local;
+import linked_list;
+import events;
+
+const u8 LF = 0x0A;
+const u8 CR = 0x0D;
+
+func void fatal(const char* msg) {
+    printf("%s\n", msg);
+    exit(EXIT_FAILURE);
+}
+
+public type ConnectionLostFn func void(void* arg);
+public type ConnectionDataFn func void(void* arg, const char* data, u32 len);
+
+public type Connection struct {
+    i32 fd;
+    linked_list.Element list;
+    events.Event event;
+    Socket* socket;
+    ConnectionLostFn onLost;
+    ConnectionDataFn onData;
+    void* arg;
+} @(opaque)
+
+func Connection* Connection.create(i32 fd, Socket* s) {
+    Connection* conn = calloc(1, sizeof(Connection));
+    conn.fd = fd;
+    conn.socket = s;
+    conn.event.assign(s.base, fd, events.READ, connection_on_data, conn);
+    conn.event.add();
+
+    //const char* msg = "welcome\n";
+    //write(fd, msg, strlen(msg));
+    return conn;
+}
+
+func void Connection.destroy(Connection* c, bool notify)
+{
+    if (notify && c.onLost != nil) c.onLost(c.arg);
+    c.list.remove();
+    c.event.del();
+    close(c.fd);
+    free(c);
+}
+
+public func void Connection.setHandlers(Connection* c, ConnectionLostFn l, ConnectionDataFn d, void* arg) {
+    c.onLost = l;
+    c.onData = d;
+    c.arg = arg;
+}
+
+public func i64 Connection.write(Connection* c, const char* msg, u32 len) {
+    return write(c.fd, msg, len);
+}
+
+public func void Connection.send_file(Connection* c, i32 fd, u64 len) {
+    c_ssize res = sendfile(c.fd, fd, nil, len);
+    if (res != len) {
+        fprintf(stderr, "sendfile returned %ld\n", res);
+    }
+}
+
+public func void Connection.close(Connection* c) {
+    c.destroy(false);
+}
+
+func void connection_on_data(i32 fd, void* arg, u16 flags)
+{
+    Connection* c = arg;
+    char[4096] buffer;
+
+    i64 numread = read(c.fd, buffer, sizeof(buffer)-1);
+    if (numread <= 0) {
+        c.destroy(true);
+        return;
+    }
+    buffer[numread] = 0;
+
+    if (c.onData != nil) c.onData(c.arg, buffer, cast<u32>(numread));
+}
+
+public type NewConnectionFn func void (Connection* c, void* arg, const char* src_ip);
+
+public type Socket struct {
+    i32 fd;
+    events.Base* base;
+    events.Event event;
+    linked_list.Element connections;
+    NewConnectionFn handler;
+    void* handler_arg;
+} @(opaque)
+
+public func Socket* Socket.create(events.Base* base, u16 port,
+                                  NewConnectionFn handler, void* handler_arg)
+{
+    Socket* s = calloc(1, sizeof(Socket));
+    s.base = base;
+    s.handler = handler;
+    s.handler_arg = handler_arg;
+    s.connections.init();
+    // assert(handler)
+
+    s.fd = socket(AF_INET, SocketType.SOCK_STREAM | SocketType.SOCK_CLOEXEC, IPPROTO_TCP);
+    if (s.fd == -1) {
+        fatal("opening TCP socket");
+    }
+
+	Sockaddr_in my_addr;
+	my_addr.sin_family = AF_INET;
+    my_addr.sin_port = htons(port);
+    my_addr.sin_addr.s_addr = INADDR_ANY;
+    memset(&my_addr.sin_zero, 0, 8);
+
+    i32 reuse = 1;
+    if (setsockopt(s.fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {
+        fatal("setsockopt(SO_REUSEADDR)");
+    }
+
+    if (bind(s.fd, cast<Sockaddr*>(&my_addr), sizeof(Sockaddr)) != 0) fatal("bind() failed");
+
+    if (listen(s.fd, 1) != 0) fatal("listen() failed");
+
+    s.event.assign(base, s.fd, events.READ, socket_on_connection, s);
+    s.event.add();
+    return s;
+}
+
+public func void Socket.destroy(Socket* s)
+{
+    linked_list.Element* node = s.connections.next;
+    while (node != &s.connections) {
+        Connection* c = to_container(Connection, list, node);
+        c.destroy(false);
+    }
+    s.event.del();
+    close(s.fd);
+    free(s);
+}
+
+func void Socket.onConnection(Socket* s)
+{
+    u32 sin_size = sizeof(Sockaddr_in);
+    Sockaddr_in remote;
+    i32 new_fd = accept4(s.fd, cast<Sockaddr*>(&remote), &sin_size, SocketType.SOCK_CLOEXEC);
+    if (new_fd == -1) fatal("accept4");
+
+    char* src_ipnr = inet_ntoa(remote.sin_addr);
+    Connection* c = Connection.create(new_fd, s);
+    s.connections.addTail(&c.list);
+    s.handler(c, s.handler_arg, src_ipnr);
+}
+
+func void socket_on_connection(i32 fd, void* arg, u16 flags)
+{
+    Socket* s = arg;
+    s.onConnection();
+}
+

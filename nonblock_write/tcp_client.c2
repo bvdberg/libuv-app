@@ -1,0 +1,84 @@
+module tcp_client;
+
+import stdio local;
+import stdlib local;
+import unistd local;
+import c_errno local;
+import string local;
+import sys_socket local;
+
+import events;
+
+const u32 MAX_DATA = 4096;
+
+public type OnData func void(void* arg, const char* data, u32 size);
+public type OnError func void(void* arg);
+
+public type Client struct {
+    i32 fd;
+    events.Event event;
+    OnData on_data;
+    OnError on_error;
+    void* arg;
+} @(opaque)
+
+
+
+public func Client* Client.create(events.Base* base, const char* ipnr, u16 port, OnData on_data, OnError on_error, void* arg) {
+    Client* c = calloc(1, sizeof(Client));
+    c.on_data = on_data;
+    c.on_error = on_error;
+    c.arg = arg;
+
+    c.fd = socket(AF_INET, SocketType.SOCK_STREAM | SocketType.SOCK_CLOEXEC, IPPROTO_TCP);
+    if (c.fd == -1) {
+        fprintf(stderr, "error opening socket: %s\n", strerror(*errno2()));
+        exit(EXIT_FAILURE);
+    }
+
+    Sockaddr_in dest_addr = { 0 }
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(port);
+    dest_addr.sin_addr.s_addr = inet_addr(ipnr);
+    if (dest_addr.sin_addr.s_addr == INADDR_NONE) {
+        fprintf(stderr, "cannot convert ipnr: %s\n", strerror(*errno2()));
+        exit(EXIT_FAILURE);
+    }
+
+    i32 res = connect(c.fd, cast<Sockaddr*>(&dest_addr), sizeof(Sockaddr_in));
+    if (res == -1) {
+        fprintf(stderr, "error connecting: %s\n", strerror(*errno2()));
+        exit(EXIT_FAILURE);
+    }
+
+    c.event.assign(base, c.fd, events.READ, client_on_data, c);
+    // NOTE: dont add for test
+    //c.event.add();
+
+    return c;
+}
+
+public func void Client.destroy(Client* c) {
+    c.event.del();
+    close(c.fd);
+    free(c);
+}
+
+func void client_on_data(i32 fd, void* arg, u16 flags) {
+    Client* c = arg;
+    char[MAX_DATA] buffer;
+    i32 numread = cast<i32>(read(fd, buffer, MAX_DATA));
+    if (numread <= 0) {
+        c.on_error(c.arg);
+    } else {
+        c.on_data(c.arg, buffer, cast<u32>(numread));
+    }
+}
+
+public func void Client.write(Client* c, const char* data, u32 size) {
+    i32 numwritten = cast<i32>(write(c.fd, data, size));
+    if (numwritten != size) {
+        c.on_error(c.arg);
+    }
+}
+

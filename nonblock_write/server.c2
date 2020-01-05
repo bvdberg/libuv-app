@@ -1,0 +1,86 @@
+module main_server;
+
+import unistd;
+import c_errno local;
+import csignal local;
+import string local;
+import stdlib local;
+import stdio local;
+import logger;
+import events;
+import tcp_server;
+
+events.Base* base;
+logger.Log log;
+tcp_server.Connection* conn;
+events.Timer timer;
+
+const u32 Block_size = 1024;
+u32 total_written;
+char[Block_size] data = { 0 }
+
+func void on_new_connection(tcp_server.Connection* c, void* arg, const char* src_ip) {
+    log.info("new connection");
+    if (conn != nil) {
+        log.warn("already have connection");
+        c.close();
+        return;
+    }
+    conn = c;
+    timer.add(100);
+}
+
+func void on_timer(void* arg) {
+    i64 written = conn.write(data, sizeof(data));
+    if (written < 0) {
+        log.warn("error writing data: %s", strerror(*errno2()));
+        timer.del();
+        base.loopbreak(EXIT_FAILURE);
+        return;
+    }
+    if (written != sizeof(data)) {
+        log.warn("partial write %lu bytes", written);
+        return;
+    }
+    total_written += written;
+    log.info("written %u bytes", total_written);
+}
+
+public func i32 main(i32 argc, char** argv) {
+    u16 port = 6666;
+    if (argc == 2) port = cast<u16>(atoi(argv[1]));
+
+    logger.Base logbase;
+    logbase.init(logger.Level.Info, unistd.isatty(1), true);
+    log.init(&logbase, "server");
+
+    log.info("listening on port %u", port);
+
+    base = events.Base.create();
+    tcp_server.Socket.create(base, port, on_new_connection, nil);
+    timer.assign(base, events.PERSIST, on_timer, nil);
+
+    Sigaction act;
+    memset(&act, 0, sizeof(act));
+    act.sa_flags = SA_NOCLDSTOP|SA_RESTART;
+    act.sa_handler = signal_handler;
+    if (sigaction(SIGINT, &act, nil) != 0) fatal("sigaction(SIGINT)");
+    if (sigaction(SIGTERM, &act, nil) != 0) fatal("sigaction(SIGTERM)");
+
+    u8 ret = base.mainloop();
+
+    base.destroy();
+    log.base.destroy();
+
+    return ret;
+}
+
+func void signal_handler(i32 num) {
+    base.loopbreak(EXIT_SUCCESS);
+}
+
+func void fatal(const char* msg) {
+    fprintf(stderr, "Fatal: %s\n", msg);
+    exit(EXIT_FAILURE);
+}
+
