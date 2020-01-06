@@ -13,18 +13,22 @@ const u32 MAX_DATA = 4096;
 
 public type OnData func void(void* arg, const char* data, u32 size);
 public type OnError func void(void* arg);
+public type OnTimeout func void(void* arg);
 
 public type Client struct {
     i32 fd;
     events.Event event;
+    events.Timer timer;
     OnData on_data;
     OnError on_error;
+    OnTimeout on_timeout;
     void* arg;
+    bool connected;
 } @(opaque)
 
-
-
-public func Client* Client.create(events.Base* base, const char* ipnr, u16 port, OnData on_data, OnError on_error, void* arg) {
+public func Client* Client.create(events.Base* base,
+                                  const char* ipnr, u16 port,
+                                  OnData on_data, OnError on_error, void* arg) {
     Client* c = calloc(1, sizeof(Client));
     c.on_data = on_data;
     c.on_error = on_error;
@@ -40,10 +44,6 @@ public func Client* Client.create(events.Base* base, const char* ipnr, u16 port,
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(port);
     dest_addr.sin_addr.s_addr = inet_addr(ipnr);
-    if (dest_addr.sin_addr.s_addr == INADDR_NONE) {
-        fprintf(stderr, "cannot convert ipnr: %s\n", strerror(*errno2()));
-        exit(EXIT_FAILURE);
-    }
 
     i32 res = connect(c.fd, cast<Sockaddr*>(&dest_addr), sizeof(Sockaddr_in));
     if (res == -1) {
@@ -54,7 +54,54 @@ public func Client* Client.create(events.Base* base, const char* ipnr, u16 port,
     c.event.assign(base, c.fd, events.READ, client_on_data, c);
     // NOTE: dont add for test
     //c.event.add();
+    c.connected = true;
 
+    return c;
+}
+
+public func Client* Client.create_async(events.Base* base,
+                                  const char* ipnr, u16 port,
+                                  OnData on_data, OnError on_error, void* arg,
+                                  u32 timeout_ms, OnTimeout on_timeout) {
+    Client* c = calloc(1, sizeof(Client));
+    c.on_data = on_data;
+    c.on_error = on_error;
+    c.on_timeout = on_timeout;
+    c.arg = arg;
+
+    i32 types = SocketType.SOCK_STREAM | SocketType.SOCK_CLOEXEC;
+    types |= SocketType.SOCK_NONBLOCK;
+    c.fd = socket(AF_INET, types, 0);
+    //c.fd = socket(AF_INET, types, IPPROTO_TCP);
+    if (c.fd == -1) {
+        fprintf(stderr, "error opening socket: %s\n", strerror(*errno2()));
+        exit(EXIT_FAILURE);
+    }
+
+    Sockaddr_in dest_addr = { 0 }
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port = htons(port);
+    dest_addr.sin_addr.s_addr = inet_addr(ipnr);
+
+    i32 res = connect(c.fd, cast<Sockaddr*>(&dest_addr), sizeof(Sockaddr_in));
+    if (res == -1 && *errno2() != EINPROGRESS) {
+        fprintf(stderr, "error connecting: %s\n", strerror(*errno2()));
+        close(c.fd);
+        exit(EXIT_FAILURE);
+    }
+    if (res == 0) {
+        printf("CONNECTED DIRECTLY\n");
+        c.event.assign(base, c.fd, events.READ, client_on_data, c);
+        c.event.add();
+        c.connected = true;
+        return c;
+    }
+
+    printf("waiting async\n");
+    c.event.assign(base, c.fd, events.WRITE, client_on_connect, c);
+    c.event.add();
+    c.timer.assign(base, 0, client_on_timeout, c);
+    c.timer.add(events.msec(timeout_ms));
     return c;
 }
 
@@ -62,6 +109,27 @@ public func void Client.destroy(Client* c) {
     c.event.del();
     close(c.fd);
     free(c);
+}
+
+func void client_on_timeout(void* arg) {
+    Client* c = arg;
+    c.on_timeout(c.arg);
+}
+
+func void client_on_connect(i32 fd, void* arg, u16 flags) {
+    Client* c = arg;
+    i32 so_error = 0;
+    u32 len = sizeof(so_error);
+    i32 res = getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+    if (res == 0 && so_error == 0) {
+        c.timer.del();
+        c.event.del();
+        c.event.assign(c.event.base, c.fd, events.READ, client_on_data, c);
+        c.event.add();
+        c.connected = true;
+    } else {
+        c.on_error(c.arg);
+    }
 }
 
 func void client_on_data(i32 fd, void* arg, u16 flags) {

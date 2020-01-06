@@ -18,7 +18,12 @@ func void on_data(void* arg, const char* data, u32 size) {
 }
 
 func void on_error(void* arg) {
-    log.error("error");
+    log.error("client error");
+    base.loopbreak(EXIT_FAILURE);
+}
+
+func void on_timeout(void* arg) {
+    log.error("client timeout");
     base.loopbreak(EXIT_FAILURE);
 }
 
@@ -35,7 +40,7 @@ public func i32 main(i32 argc, char** argv) {
     log.info("connecting to %s port %u", server, port);
 
     base = events.Base.create();
-    tcp_client.Client* client = tcp_client.Client.create(base, server, port, on_data, on_error, nil);
+    tcp_client.Client* client = tcp_client.Client.create_async(base, server, port, on_data, on_error, nil, 5000, on_timeout);
 
     Sigaction act;
     memset(&act, 0, sizeof(act));

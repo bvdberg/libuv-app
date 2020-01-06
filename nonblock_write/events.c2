@@ -159,8 +159,9 @@ func void Base.internal_loop(Base* base) {
         u32 i = 0;
         while (ev) {
             base.fds[i].fd = ev.fd;
-            // TEMP only read, should check events.READ/WRITE
-            base.fds[i].events = POLLIN;
+            base.fds[i].events = 0;
+            if (ev.flags & READ) base.fds[i].events |= POLLIN;
+            if (ev.flags & WRITE) base.fds[i].events |= POLLOUT;
             base.events[i] = ev;
             ev = ev.next;
             i++;
@@ -215,6 +216,7 @@ public type Event struct {
     Base* base;
     EventFunc handler;
     void* handler_arg;
+    u16 flags;
 }
 
 public const u8 READ  = 0x02;
@@ -227,6 +229,7 @@ public func void Event.assign(Event* ev, Base* base, i32 fd, u16 flags, EventFun
     ev.base = base;
     ev.handler = fn;
     ev.handler_arg = arg;
+    ev.flags = flags;
 }
 
 public func void Event.add(Event* ev)
