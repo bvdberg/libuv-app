@@ -129,7 +129,7 @@ func void Base.fire_timer(Base* base) {
     Timer* timer = base.timers;
     base.timers = timer.next;
     timer.next = nil;
-    if (timer.flags &= PERSIST) {
+    if (timer.flags & PERSIST) {
         timer.timeout += timer.interval_usec;
         timer.add_internal();
     } else {

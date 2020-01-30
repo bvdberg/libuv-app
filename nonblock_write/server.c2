@@ -26,6 +26,7 @@ func void on_conn_lost(void* arg) {
     log.info("connection lost");
     conn = nil;
     total_written = 0;
+    timer.del();
 }
 
 func void on_conn_data(void* arg, const char* data, u32 len) {
