@@ -68,7 +68,7 @@ public func i32 main(i32 argc, char** argv) {
     log.info("listening on port %u", port);
 
     base = events.Base.create();
-    tcp_server.Socket.create(base, port, on_new_connection, nil);
+    tcp_server.Socket.create(base, port, on_new_connection, nil, true);
     timer.assign(base, events.PERSIST, on_timer, nil);
 
     Sigaction act;

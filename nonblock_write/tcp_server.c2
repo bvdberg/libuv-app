@@ -97,17 +97,19 @@ public type Socket struct {
     linked_list.Element connections;
     NewConnectionFn handler;
     void* handler_arg;
+    bool non_blocking;
 } @(opaque)
 
 public func Socket* Socket.create(events.Base* base, u16 port,
-                                  NewConnectionFn handler, void* handler_arg)
+                                  NewConnectionFn handler, void* handler_arg,
+                                  bool non_blocking = false)
 {
     Socket* s = calloc(1, sizeof(Socket));
     s.base = base;
     s.handler = handler;
     s.handler_arg = handler_arg;
     s.connections.init();
-    // assert(handler)
+    s.non_blocking = non_blocking;
 
     s.fd = socket(AF_INET, SocketType.SOCK_STREAM | SocketType.SOCK_CLOEXEC, IPPROTO_TCP);
     if (s.fd == -1) {
@@ -150,7 +152,9 @@ func void Socket.onConnection(Socket* s)
 {
     u32 sin_size = sizeof(Sockaddr_in);
     Sockaddr_in remote;
-    i32 new_fd = accept4(s.fd, cast<Sockaddr*>(&remote), &sin_size, SocketType.SOCK_CLOEXEC);
+    i32 flags = SocketType.SOCK_CLOEXEC;
+    if (s.non_blocking) flags |= SocketType.SOCK_NONBLOCK;
+    i32 new_fd = accept4(s.fd, cast<Sockaddr*>(&remote), &sin_size, flags);
     if (new_fd == -1) fatal("accept4");
 
     char* src_ipnr = inet_ntoa(remote.sin_addr);
