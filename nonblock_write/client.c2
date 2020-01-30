@@ -6,12 +6,15 @@ import csignal local;
 import string local;
 import stdlib local;
 import stdio local;
+import ctermios local;
+import sys_ioctl local;
 import logger;
 import events;
 import tcp_client;
 
 events.Base* base;
 logger.Log log;
+events.Event keyboard;
 
 func void on_data(void* arg, const char* data, u32 size) {
     log.info("recv %u bytes", size);
@@ -27,6 +30,28 @@ func void on_timeout(void* arg) {
     base.loopbreak(EXIT_FAILURE);
 }
 
+func void on_keypress(i32 fd, void* arg, u16 flags) {
+    char[1] c;
+    i32 numread = cast<i32>(unistd.read(0, c, 1));
+    if (numread <= 0) {
+        log.error("error reading keyboard\n");
+        base.loopbreak(EXIT_FAILURE);
+    }
+    switch (c[0]) {
+    case 'h':
+        printf("help\n");
+        printf("   h    help\n");
+        printf("   r    toggle reading\n");
+        printf("   q    quit\n");
+        break;
+    case 'q':
+        base.loopbreak(EXIT_SUCCESS);
+        break;
+    case 'r':
+        break;
+    }
+}
+
 public func i32 main(i32 argc, char** argv) {
     const char* server = "127.0.0.1";
     u16 port = 6666;
@@ -40,9 +65,22 @@ public func i32 main(i32 argc, char** argv) {
     log.info("connecting to %s port %u", server, port);
 
     base = events.Base.create();
-    tcp_client.Client* client = tcp_client.Client.create(base, server, port, on_data, on_error, nil);
-    log.info("connected");
-    //tcp_client.Client* client = tcp_client.Client.create_async(base, server, port, on_data, on_error, nil, 5000, on_timeout);
+    //tcp_client.Client* client = tcp_client.Client.create(base, server, port, on_data, on_error, nil);
+    //log.info("connected");
+    tcp_client.Client* client = tcp_client.Client.create_async(base, server, port, on_data, on_error, nil, 5000, on_timeout);
+
+    keyboard.assign(base, 0, events.READ, on_keypress, nil);
+    keyboard.add();
+
+    Termios old_term;
+    Termios new_term;
+    ioctl(0, TCGETS, &old_term);
+    new_term = old_term;
+    new_term.c_lflag &= ~ECHO;
+    new_term.c_lflag &= ~ICANON;
+    new_term.c_cc[VMIN] = 1;
+    new_term.c_cc[VTIME] = 1;
+    ioctl(0, TCSETS, &new_term);
 
     Sigaction act;
     memset(&act, 0, sizeof(act));
@@ -53,6 +91,8 @@ public func i32 main(i32 argc, char** argv) {
 
     u8 ret = base.mainloop();
 
+    ioctl(0, TCSETS, &old_term);
+    keyboard.del();
     base.destroy();
     log.base.destroy();
 

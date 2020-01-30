@@ -15,8 +15,6 @@ logger.Log log;
 
 tcp_server.Connection* conn;
 events.Timer timer;
-// TODO implement write buffer here
-u32 pending_data = 0;
 
 const u32 Block_size = 2048;
 u32 total_written;
@@ -25,7 +23,6 @@ char[Block_size] dummy_data = { 0 }
 func void reset() {
     conn = nil;
     total_written = 0;
-    pending_data = 0;
     timer.del();
 }
 
@@ -56,28 +53,18 @@ func void on_timer(void* arg) {
     if (written < 0) {
         i32 err = *errno2();
         if (err == EAGAIN) {
-            pending_data += len;
-            log.info("queue %u bytes (total %u)", len, pending_data);
-            if (pending_data > len) { // already waiting on write event
-                if (pending_data > 100000) {
-                    log.warn("buffer full, closing connection");
-                    conn.close();
-                    timer.del();
-                    reset();
-                }
-            } else {
-                // TODO start waiting for write events
-            }
+            log.warn("buffer full, closing connection");
         } else {
             log.warn("error writing data: %s (%d)", strerror(err), err);
-            timer.del();
-            base.loopbreak(EXIT_FAILURE);
         }
+        conn.close();
+        reset();
         return;
     }
     if (written != len) {
-        log.warn("partial write %lu/%u bytes", written, len);
-        // TODO also queue, same as above
+        log.warn("buffer full, closing connection");
+        conn.close();
+        reset();
         return;
     }
     total_written += written;
