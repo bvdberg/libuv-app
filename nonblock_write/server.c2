@@ -12,8 +12,11 @@ import tcp_server;
 
 events.Base* base;
 logger.Log log;
+
 tcp_server.Connection* conn;
 events.Timer timer;
+// TODO implement write buffer here
+u32 pending_data = 0;
 
 const u32 Block_size = 1024;
 u32 total_written;
@@ -38,19 +41,39 @@ func void on_new_connection(tcp_server.Connection* c, void* arg, const char* src
     }
     conn = c;
     c.setHandlers(on_conn_lost, on_conn_data, c);
-    timer.add(100);
+    timer.add(10000);
 }
 
 func void on_timer(void* arg) {
-    i64 written = conn.write(dummy_data, sizeof(dummy_data));
+    u32 len = sizeof(dummy_data);
+    i64 written = conn.write(dummy_data, len);
     if (written < 0) {
-        log.warn("error writing data: %s", strerror(*errno2()));
-        timer.del();
-        base.loopbreak(EXIT_FAILURE);
+        i32 err = *errno2();
+        if (err == EAGAIN) {
+            pending_data += len;
+            log.info("queue %u bytes (total %u)", len, pending_data);
+            if (pending_data > len) { // already waiting on write event
+                if (pending_data > 100000) {
+                    log.warn("buffer full, closing connection");
+                    pending_data = 0;
+                    timer.del();
+                    conn.close();
+                    conn = nil;
+                    return;
+                }
+            } else {
+                // TODO start waiting for write events
+            }
+        } else {
+            log.warn("error writing data: %s (%d)", strerror(err), err);
+            timer.del();
+            base.loopbreak(EXIT_FAILURE);
+        }
         return;
     }
-    if (written != sizeof(dummy_data)) {
-        log.warn("partial write %lu bytes", written);
+    if (written != len) {
+        log.warn("partial write %lu/%u bytes", written, len);
+        // TODO also queue, same as above
         return;
     }
     total_written += written;

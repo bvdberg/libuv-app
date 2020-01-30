@@ -40,7 +40,9 @@ public func i32 main(i32 argc, char** argv) {
     log.info("connecting to %s port %u", server, port);
 
     base = events.Base.create();
-    tcp_client.Client* client = tcp_client.Client.create_async(base, server, port, on_data, on_error, nil, 5000, on_timeout);
+    tcp_client.Client* client = tcp_client.Client.create(base, server, port, on_data, on_error, nil);
+    log.info("connected");
+    //tcp_client.Client* client = tcp_client.Client.create_async(base, server, port, on_data, on_error, nil, 5000, on_timeout);
 
     Sigaction act;
     memset(&act, 0, sizeof(act));

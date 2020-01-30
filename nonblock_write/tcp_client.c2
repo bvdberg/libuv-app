@@ -92,7 +92,7 @@ public func Client* Client.create_async(events.Base* base,
     if (res == 0) {
         printf("CONNECTED DIRECTLY\n");
         c.event.assign(base, c.fd, events.READ, client_on_data, c);
-        c.event.add();
+        //c.event.add();
         c.connected = true;
         return c;
     }
@@ -125,7 +125,7 @@ func void client_on_connect(i32 fd, void* arg, u16 flags) {
         c.timer.del();
         c.event.del();
         c.event.assign(c.event.base, c.fd, events.READ, client_on_data, c);
-        c.event.add();
+        //c.event.add();
         c.connected = true;
     } else {
         c.on_error(c.arg);
