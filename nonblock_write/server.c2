@@ -18,15 +18,20 @@ events.Timer timer;
 // TODO implement write buffer here
 u32 pending_data = 0;
 
-const u32 Block_size = 1024;
+const u32 Block_size = 2048;
 u32 total_written;
 char[Block_size] dummy_data = { 0 }
 
-func void on_conn_lost(void* arg) {
-    log.info("connection lost");
+func void reset() {
     conn = nil;
     total_written = 0;
+    pending_data = 0;
     timer.del();
+}
+
+func void on_conn_lost(void* arg) {
+    log.info("connection lost");
+    reset();
 }
 
 func void on_conn_data(void* arg, const char* data, u32 len) {
@@ -42,7 +47,7 @@ func void on_new_connection(tcp_server.Connection* c, void* arg, const char* src
     }
     conn = c;
     c.setHandlers(on_conn_lost, on_conn_data, c);
-    timer.add(10000);
+    timer.add(1000);
 }
 
 func void on_timer(void* arg) {
@@ -56,11 +61,9 @@ func void on_timer(void* arg) {
             if (pending_data > len) { // already waiting on write event
                 if (pending_data > 100000) {
                     log.warn("buffer full, closing connection");
-                    pending_data = 0;
-                    timer.del();
                     conn.close();
-                    conn = nil;
-                    return;
+                    timer.del();
+                    reset();
                 }
             } else {
                 // TODO start waiting for write events
